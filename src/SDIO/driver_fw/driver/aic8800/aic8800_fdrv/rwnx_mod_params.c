@@ -29,6 +29,13 @@
 
 extern int reg_regdb_size;
 
+static bool rwnx_is_aic8800d80_family(struct rwnx_hw *rwnx_hw)
+{
+	return rwnx_hw->sdiodev->chipid == PRODUCT_ID_AIC8800D80 ||
+		rwnx_hw->sdiodev->chipid == PRODUCT_ID_AIC8800D80N ||
+		rwnx_hw->sdiodev->chipid == PRODUCT_ID_AIC8800D80X2;
+}
+
 struct rwnx_mod_params rwnx_mod_params = {
 	/* common parameters */
 	COMMON_PARAM(ht_on, true, true)
@@ -1681,14 +1688,19 @@ static void rwnx_set_rf_params(struct rwnx_hw *rwnx_hw, struct wiphy *wiphy)
 	switch (mdm_phy_cfg) {
 	case MDM_PHY_CONFIG_TRIDENT:
 	{
-		wiphy_dbg(wiphy, "found Trident phy .. limit BW to 40MHz\n");
-		rwnx_hw->phy.limit_bw = true;
-		if (rwnx_hw->band_5g_support) {
+		if (rwnx_hw->mod_params->use_80 && rwnx_is_aic8800d80_family(rwnx_hw)) {
+			wiphy_dbg(wiphy, "found AIC8800D80-family Trident phy with 80MHz enabled\n");
+			rwnx_hw->phy.limit_bw = false;
+		} else {
+			wiphy_dbg(wiphy, "found Trident phy .. limit BW to 40MHz\n");
+			rwnx_hw->phy.limit_bw = true;
+			if (rwnx_hw->band_5g_support) {
 #ifdef CONFIG_VENDOR_RWNX_VHT_NO80
-			band_5GHz->vht_cap.cap |= IEEE80211_VHT_CAP_NOT_SUP_WIDTH_80;
+				band_5GHz->vht_cap.cap |= IEEE80211_VHT_CAP_NOT_SUP_WIDTH_80;
 #endif
-			band_5GHz->vht_cap.cap &= ~(IEEE80211_VHT_CAP_SHORT_GI_80 |
-										IEEE80211_VHT_CAP_RXSTBC_MASK);
+				band_5GHz->vht_cap.cap &= ~(IEEE80211_VHT_CAP_SHORT_GI_80 |
+											IEEE80211_VHT_CAP_RXSTBC_MASK);
+			}
 		}
 		break;
 	}

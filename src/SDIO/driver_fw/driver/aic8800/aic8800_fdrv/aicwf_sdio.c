@@ -2356,12 +2356,25 @@ void aicwf_sdio_aggr_send(struct aicwf_tx_priv *tx_priv)
 	struct sk_buff *tx_buf = tx_priv->aggr_buf;
 	int ret = 0;
 	int curr_len = 0;
+	int pad_len = 0;
 
-	//link tail is necessary
+	/*
+	 * Pad the complete SDIO block tail with zeroes.  The transfer length is
+	 * rounded up to TXPKT_BLOCKSIZE in aicwf_sdio_txpkt(), so leaving the
+	 * bytes after a short 4-byte tail untouched can leak stale data from a
+	 * previous aggregation and make firmware parse an extra bogus SDIO header.
+	 */
 	curr_len = tx_priv->tail - tx_priv->head;
 	if ((curr_len % TXPKT_BLOCKSIZE) != 0) {
-		memset(tx_priv->tail, 0, TAIL_LEN);
-		tx_priv->tail += TAIL_LEN;
+		pad_len = roundup(curr_len, TXPKT_BLOCKSIZE) - curr_len;
+
+		if (curr_len + pad_len > MAX_AGGR_TXPKT_LEN) {
+			sdio_err("aggregated tx packet too large: %d + %d\n",
+				curr_len, pad_len);
+			goto out;
+		}
+		memset(tx_priv->tail, 0, pad_len);
+		tx_priv->tail += pad_len;
 	}
 
 	tx_buf->len = tx_priv->tail - tx_priv->head;
@@ -2369,6 +2382,7 @@ void aicwf_sdio_aggr_send(struct aicwf_tx_priv *tx_priv)
 	if (ret < 0) {
 		sdio_err("fail to send aggr pkt!\n");
 	}
+out:
 #endif/* CONFIG_SDIO_ADMA */
 
 	aicwf_sdio_aggrbuf_reset(tx_priv);
