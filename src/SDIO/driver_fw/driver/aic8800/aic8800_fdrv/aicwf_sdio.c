@@ -2356,12 +2356,25 @@ void aicwf_sdio_aggr_send(struct aicwf_tx_priv *tx_priv)
 	struct sk_buff *tx_buf = tx_priv->aggr_buf;
 	int ret = 0;
 	int curr_len = 0;
+	int pad_len = 0;
 
-	//link tail is necessary
+	/*
+	 * Pad the complete SDIO block tail with zeroes.  The transfer length is
+	 * rounded up to TXPKT_BLOCKSIZE in aicwf_sdio_txpkt(), so leaving the
+	 * bytes after a short 4-byte tail untouched can leak stale data from a
+	 * previous aggregation and make firmware parse an extra bogus SDIO header.
+	 */
 	curr_len = tx_priv->tail - tx_priv->head;
 	if ((curr_len % TXPKT_BLOCKSIZE) != 0) {
-		memset(tx_priv->tail, 0, TAIL_LEN);
-		tx_priv->tail += TAIL_LEN;
+		pad_len = roundup(curr_len, TXPKT_BLOCKSIZE) - curr_len;
+
+		if (curr_len + pad_len > MAX_AGGR_TXPKT_LEN) {
+			sdio_err("aggregated tx packet too large: %d + %d\n",
+				curr_len, pad_len);
+			goto out;
+		}
+		memset(tx_priv->tail, 0, pad_len);
+		tx_priv->tail += pad_len;
 	}
 
 	tx_buf->len = tx_priv->tail - tx_priv->head;
@@ -2369,6 +2382,7 @@ void aicwf_sdio_aggr_send(struct aicwf_tx_priv *tx_priv)
 	if (ret < 0) {
 		sdio_err("fail to send aggr pkt!\n");
 	}
+out:
 #endif/* CONFIG_SDIO_ADMA */
 
 	aicwf_sdio_aggrbuf_reset(tx_priv);
@@ -3285,15 +3299,25 @@ int aicwf_sdiov3_func_init(struct aic_sdio_dev *sdiodev)
         return ret;
     }
     msleep(1);
-#if 1//SDIO CLOCK SETTING
-	if ((feature.sdio_clock > 0) && (host->ios.timing != MMC_TIMING_UHS_DDR50)) {
-		host->ios.clock = feature.sdio_clock;
-		host->ops->set_ios(host, &host->ios);
-		AICWFDBG(LOGINFO, "Set SDIO Clock %d MHz\n", host->ios.clock/1000000);
-	}
-#endif
 #endif
 	sdio_release_host(sdiodev->func);
+
+	/*
+	 * AIC8800D80 uses the v3 SDIO path.  The old v3 init kept the SDIO
+	 * clock programming inside the disabled iopad-tuning block above, so
+	 * hosts that enumerate at a conservative clock (common on 4.9 SDIO
+	 * stacks) never get the BSP-requested bus rate.  Program only the host
+	 * clock here, leaving the disabled iopad writes untouched.
+	 */
+	if ((feature.sdio_clock > 0) &&
+		(host->ios.timing != MMC_TIMING_UHS_DDR50) &&
+		(host->ios.clock < feature.sdio_clock)) {
+		sdio_claim_host(sdiodev->func);
+		host->ios.clock = feature.sdio_clock;
+		host->ops->set_ios(host, &host->ios);
+		sdio_release_host(sdiodev->func);
+		AICWFDBG(LOGINFO, "Set SDIO Clock %d MHz\n", host->ios.clock/1000000);
+	}
 
 	//1: no byte mode
 	ret = aicwf_sdio_writeb(sdiodev, sdiodev->sdio_reg.bytemode_enable_reg, byte_mode_disable);
