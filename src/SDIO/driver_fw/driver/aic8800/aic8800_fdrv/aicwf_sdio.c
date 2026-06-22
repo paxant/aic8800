@@ -3299,15 +3299,25 @@ int aicwf_sdiov3_func_init(struct aic_sdio_dev *sdiodev)
         return ret;
     }
     msleep(1);
-#if 1//SDIO CLOCK SETTING
-	if ((feature.sdio_clock > 0) && (host->ios.timing != MMC_TIMING_UHS_DDR50)) {
-		host->ios.clock = feature.sdio_clock;
-		host->ops->set_ios(host, &host->ios);
-		AICWFDBG(LOGINFO, "Set SDIO Clock %d MHz\n", host->ios.clock/1000000);
-	}
-#endif
 #endif
 	sdio_release_host(sdiodev->func);
+
+	/*
+	 * AIC8800D80 uses the v3 SDIO path.  The old v3 init kept the SDIO
+	 * clock programming inside the disabled iopad-tuning block above, so
+	 * hosts that enumerate at a conservative clock (common on 4.9 SDIO
+	 * stacks) never get the BSP-requested bus rate.  Program only the host
+	 * clock here, leaving the disabled iopad writes untouched.
+	 */
+	if ((feature.sdio_clock > 0) &&
+		(host->ios.timing != MMC_TIMING_UHS_DDR50) &&
+		(host->ios.clock < feature.sdio_clock)) {
+		sdio_claim_host(sdiodev->func);
+		host->ios.clock = feature.sdio_clock;
+		host->ops->set_ios(host, &host->ios);
+		sdio_release_host(sdiodev->func);
+		AICWFDBG(LOGINFO, "Set SDIO Clock %d MHz\n", host->ios.clock/1000000);
+	}
 
 	//1: no byte mode
 	ret = aicwf_sdio_writeb(sdiodev, sdiodev->sdio_reg.bytemode_enable_reg, byte_mode_disable);

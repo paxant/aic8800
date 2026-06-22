@@ -33,6 +33,7 @@ static bool rwnx_is_aic8800d80_family(struct rwnx_hw *rwnx_hw)
 {
 	return rwnx_hw->sdiodev->chipid == PRODUCT_ID_AIC8800D80 ||
 		rwnx_hw->sdiodev->chipid == PRODUCT_ID_AIC8800D80N ||
+		rwnx_hw->sdiodev->chipid == PRODUCT_ID_AIC8800D80WN ||
 		rwnx_hw->sdiodev->chipid == PRODUCT_ID_AIC8800D80X2;
 }
 
@@ -1745,26 +1746,16 @@ int rwnx_handle_dynparams(struct rwnx_hw *rwnx_hw, struct wiphy *wiphy)
 	}
 #endif
 
-    if (rwnx_hw->sdiodev->chipid == PRODUCT_ID_AIC8800D80 ||
-		rwnx_hw->sdiodev->chipid == PRODUCT_ID_AIC8800D80N ||
-		rwnx_hw->sdiodev->chipid == PRODUCT_ID_AIC8800D80X2) {
-        rwnx_hw->mod_params->sgi80 = true;
-        rwnx_hw->mod_params->use_80 = true;
-    }
-
-    if (rwnx_hw->sdiodev->chipid == PRODUCT_ID_AIC8800D80 ||
-		rwnx_hw->sdiodev->chipid == PRODUCT_ID_AIC8800D80N ||
-		rwnx_hw->sdiodev->chipid == PRODUCT_ID_AIC8800D80X2) {
-        rwnx_hw->mod_params->use_80 = true;    
-    }
+	if (rwnx_is_aic8800d80_family(rwnx_hw)) {
+		rwnx_hw->mod_params->sgi80 = true;
+		rwnx_hw->mod_params->use_80 = true;
+	}
     
-    if (rwnx_hw->sdiodev->chipid != PRODUCT_ID_AIC8800D80 &&
-		rwnx_hw->sdiodev->chipid != PRODUCT_ID_AIC8800D80N &&
-		rwnx_hw->sdiodev->chipid != PRODUCT_ID_AIC8800D80X2 &&
-        rwnx_hw->mod_params->he_mcs_map == IEEE80211_HE_MCS_SUPPORT_0_11) {
-        AICWFDBG(LOGINFO,"%s unsupport mcs11 change to mcs9", __func__);
-        rwnx_hw->mod_params->he_mcs_map = IEEE80211_HE_MCS_SUPPORT_0_9;
-    }
+	if (!rwnx_is_aic8800d80_family(rwnx_hw) &&
+		rwnx_hw->mod_params->he_mcs_map == IEEE80211_HE_MCS_SUPPORT_0_11) {
+		AICWFDBG(LOGINFO, "%s unsupport mcs11 change to mcs9", __func__);
+		rwnx_hw->mod_params->he_mcs_map = IEEE80211_HE_MCS_SUPPORT_0_9;
+	}
 
 	/* Set wiphy parameters */
 	rwnx_set_wiphy_params(rwnx_hw, wiphy);
